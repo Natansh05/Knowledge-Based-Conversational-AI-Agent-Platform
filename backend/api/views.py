@@ -38,14 +38,16 @@ class CookieTokenObtainPairView(TokenObtainPairView):
                 httponly=True,
                 secure=False,  # True in production (HTTPS)
                 samesite="Lax",
+                max_age = 60 * 11,  # 30 minutes
             )
 
             res.set_cookie(
                 key="refresh_token",
                 value=refresh,
                 httponly=True,
-                secure=False,
+                secure=False, # True in production (HTTPS)
                 samesite="Lax",
+                max_age = 60 * 60 * 24 * 7,  # 7 days
             )
 
             return res

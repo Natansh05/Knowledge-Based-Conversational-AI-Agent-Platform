@@ -15,7 +15,18 @@ import AgentsPage from "./pages/Agents"
 import CreateEditAgentPage from "./pages/CreateAgent"
 import ChatPage from "./pages/ChatPage"
 
+import {useEffect} from "react"
+import api from "./api/axios"
+
 export default function App() {
+
+  useEffect(() => {
+    // silently refresh token on app load
+    api.post("/api/token/refresh/").catch(() => {
+      // if refresh fails, user will be logged out (handled by interceptor)
+    });
+  }, []);
+
   return (
     <BrowserRouter>
       <AuthProvider>
