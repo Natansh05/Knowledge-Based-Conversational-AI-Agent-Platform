@@ -14,7 +14,7 @@ import Documents from "./pages/Documents"
 import AgentsPage from "./pages/Agents"
 import CreateEditAgentPage from "./pages/CreateAgent"
 import ChatPage from "./pages/ChatPage"
-
+import {getOrgFromPath} from "./helpers/getTenant"
 import {useEffect} from "react"
 import api from "./api/axios"
 
@@ -22,8 +22,13 @@ export default function App() {
 
   useEffect(() => {
     // silently refresh token on app load
-    api.post("/api/token/refresh/").catch(() => {
+    const tenant = getOrgFromPath()
+    if(!tenant) return 
+
+    api.post(`/${tenant}/api/token/refresh/`).catch((err) => {
       // if refresh fails, user will be logged out (handled by interceptor)
+      console.log("Token refreshed fail ", err)
+      
     });
   }, []);
 
