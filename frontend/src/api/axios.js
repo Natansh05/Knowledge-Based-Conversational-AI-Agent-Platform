@@ -1,37 +1,48 @@
-import axios from "axios"
-import Nprogress from "nprogress"
-import "nprogress/nprogress.css"
+import axios from "axios";
+import NProgress from "nprogress";
+import "nprogress/nprogress.css";
 
 export const api = axios.create({
   baseURL: "http://localhost:8000/",
-  withCredentials: true,
-})
+  withCredentials: true, // required for cookies
+});
 
+// Start NProgress on every request
 api.interceptors.request.use((config) => {
-  Nprogress.start();
+  NProgress.start();
   return config;
 });
 
+// Token refresh handling
 let isRefreshing = false;
 let failedQueue = [];
 
 const processQueue = (error) => {
-  failedQueue.forEach(p => {
+  failedQueue.forEach((p) => {
     if (error) p.reject(error);
     else p.resolve();
   });
   failedQueue = [];
 };
 
+// Response interceptor
 api.interceptors.response.use(
   (response) => {
-    Nprogress.done();
+    NProgress.done();
     return response;
   },
   async (error) => {
-    Nprogress.done();
+    NProgress.done();
     const originalRequest = error.config;
 
+    if (
+      originalRequest.url.includes("/api/token/") &&
+      !originalRequest.url.includes("/refresh")
+    ) {
+      return Promise.reject(error); // fail login normally
+    }
+
+    // Handle 401 errors for other requests
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
@@ -52,7 +63,7 @@ api.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError);
         const tenant = window.location.pathname.split("/")[1] || "default";
-        window.location.href = `/${tenant}/login`;
+        window.location.href = `/${tenant}/login`; // redirect to login
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

@@ -9,11 +9,15 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (loading) return;
+
     setMessage("");
     setError("");
+    setLoading(true);
 
     try {
       const res = await forgotPassword(email);
@@ -22,43 +26,55 @@ export default function ForgotPassword() {
       );
     } catch (err) {
       setError(err.message || "Something went wrong. Try again later.");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
-        <h2 className="text-2xl font-semibold mb-4 text-center">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-2 sm:px-4 md:px-0 py-6">
+      <div className="bg-white rounded-lg shadow-md w-full sm:w-full md:max-w-md p-6 sm:p-8 mx-auto">
+        
+        <h2 className="text-xl sm:text-2xl font-semibold mb-4 text-center">
           Forgot Password
         </h2>
 
-        <p className="text-center text-gray-600 mb-6">
+        <p className="text-center text-gray-600 mb-5 sm:mb-6 text-sm sm:text-base">
           Enter your email to reset password for{" "}
-          <span className="font-medium text-gray-800">{org}</span>
+          <span className="font-medium text-gray-800 break-all">{org}</span>
         </p>
 
-        <form className="space-y-5" onSubmit={handleSubmit}>
+        <form className="space-y-4 sm:space-y-5" onSubmit={handleSubmit}>
           <input
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            className="w-full border border-gray-300 rounded-md px-3 sm:px-4 py-2 sm:py-2.5 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-indigo-400"
           />
 
           <button
             type="submit"
-            className="w-full bg-indigo-600 text-white font-semibold py-2 rounded-md hover:bg-indigo-700 transition"
+            disabled={loading}
+            className={`w-full font-semibold py-2.5 sm:py-3 rounded-md transition text-sm sm:text-base
+              ${loading
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-indigo-600 hover:bg-indigo-700 text-white"
+              }`}
           >
-            Reset Password
+            {loading ? "Sending..." : "Reset Password"}
           </button>
 
           {message && (
-            <p className="text-center text-green-600 mt-3">{message}</p>
+            <p className="text-center text-green-600 font-medium text-sm sm:text-base mt-2">
+              {message}
+            </p>
           )}
           {error && (
-            <p className="text-center text-red-600 mt-3">{error}</p>
+            <p className="text-center text-red-600 font-medium text-sm sm:text-base mt-2">
+              {error}
+            </p>
           )}
         </form>
 
@@ -66,7 +82,7 @@ export default function ForgotPassword() {
         <div className="mt-6 text-center">
           <Link
             to={`/${org}/login`}
-            className="text-sm text-indigo-600 hover:underline"
+            className="text-sm sm:text-base text-indigo-600 hover:underline font-medium"
           >
             ← Back to Login
           </Link>
