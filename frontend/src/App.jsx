@@ -8,12 +8,13 @@ import OrgEntry from "./pages/OrgEntry"
 import Login from "./pages/Login"
 import ForgotPassword from "./pages/ForgotPassword"
 import ResetPassword from "./pages/ResetPassword"
-import Dashboard from "./pages/Dashboard"
+import UserProfile from "./pages/UserProfile"
 import Invite from "./pages/Invite"
 import Documents from "./pages/Documents"
 import AgentsPage from "./pages/Agents"
 import CreateEditAgentPage from "./pages/CreateAgent"
 import ChatPage from "./pages/ChatPage"
+import Metrics from "./pages/Metrics"
 import {getOrgFromPath} from "./helpers/getTenant"
 import {useEffect} from "react"
 import api from "./api/axios"
@@ -80,7 +81,8 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="profile" element={<UserProfile />} />
+            <Route path="metrics" element={<Metrics />} />
             <Route path="docs" element={<Documents />} context={{ setTopBarActions: ()=> {}}}/>
             <Route path="agents" element={<AgentsPage />} context={{ setTopBarActions: ()=> {}}}/>
             <Route path="agents/new" element={<CreateEditAgentPage />} context={{ setTopBarActions: ()=> {}}}/>

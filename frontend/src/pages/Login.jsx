@@ -23,7 +23,7 @@ export default function Login() {
     try {
       await login({ username, password, org });
       toast.success("Login Successful!!");
-      navigate(`/${org}/dashboard`);
+      navigate(`/${org}/metrics`);
     } catch (err) {
       console.error("Login error:", err);
       setError("Invalid credentials");

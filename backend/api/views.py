@@ -5,7 +5,17 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
+from django_tenants.utils import tenant_context
+from rest_framework.decorators import api_view, permission_classes
+from django.utils import timezone
+from datetime import timedelta
+from django.db.models import Count, Avg
+
 from users.serializer import UserSerializer
+from chat.models import ChatSession, ChatMessage
+from documents.models import Document, DocumentChunk
+from users.models import User
+
 
 class CookieTokenObtainPairView(TokenObtainPairView):
     def post(self, request, *args, **kwargs):
@@ -106,3 +116,65 @@ class MeView(APIView):
         user = request.user
         serializer = UserSerializer(user)
         return Response(serializer.data)
+    
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def dashboard_metrics(request, tenant_slug=''):
+
+    with tenant_context(request.tenant):
+        
+        total_chats = ChatSession.objects.count()
+
+        total_questions = ChatMessage.objects.filter(role="user").count()
+
+        total_users = User.objects.count()
+
+        seven_days_ago = timezone.now() - timedelta(days=7)
+
+        active_users = (
+            ChatSession.objects
+            .filter(created_at__gte=seven_days_ago)
+            .values("user")
+            .distinct()
+            .count()
+        )
+
+        # -------- Knowledge Base --------
+
+        total_documents = Document.objects.count()
+
+        total_chunks = DocumentChunk.objects.count()
+
+        # -------- Engagement --------
+
+        avg_messages_per_chat = (
+            ChatSession.objects
+            .annotate(msg_count=Count("messages"))
+            .aggregate(avg=Avg("msg_count"))["avg"]
+        )
+
+        # -------- Agent Usage --------
+
+        agent_usage = (
+            ChatSession.objects
+            .values("agent_id","agent__name")
+            .annotate(chat_count=Count("id"))
+            .order_by("-chat_count")[:5]
+        )
+
+    return Response({
+        "usage": {
+            "total_chats": total_chats,
+            "total_questions": total_questions,
+            "total_users": total_users,
+            "active_users_7d": active_users,
+        },
+        "knowledge_base": {
+            "total_documents": total_documents,
+            "total_chunks": total_chunks
+        },
+        "engagement": {
+            "avg_messages_per_chat": avg_messages_per_chat
+        },
+        "agent_usage": list(agent_usage)
+    })

@@ -416,7 +416,20 @@ export function AuthProvider({ children }) {
         err.response?.data?.detail || "Failed to reset password"
       );
     }
-}
+  }
+
+
+  async function getMetrics(){
+    try{
+      const res = await api.get(`/${tenant}/api/metrics/`)
+      return res.data
+    }catch(err){
+      throw new Error(
+        err.response?.data?.detail || "Failed to fetch metrics"
+      );
+    }
+  }
+
 
   return (
     <AuthContext.Provider
@@ -450,7 +463,8 @@ export function AuthProvider({ children }) {
         createChat,
         getChats,
         getMessages,
-        sendMessage
+        sendMessage,
+        getMetrics,
       }}
     >
       {children}
