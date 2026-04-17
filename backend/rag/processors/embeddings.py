@@ -3,6 +3,7 @@ from sentence_transformers import SentenceTransformer
 from documents.models import DocumentChunk
 # model = SentenceTransformer("all-MiniLM-L6-v2")
 model = SentenceTransformer("all-mpnet-base-v2")
+from celery import group
 
 BLOCKED_PATTERNS = [
     "write code",
@@ -28,22 +29,28 @@ def is_query_allowed(query: str) -> bool:
 
 def generate_embeddings(texts):
 
-    embeddings = model.encode(texts)
-
+    embeddings = model.encode(
+        texts,
+        batch_size=32,
+        show_progress_bar=False,
+        convert_to_numpy=True,
+        normalize_embeddings=True
+    )
     return embeddings.tolist()
 
+BATCH_SIZE=64
 def embed_document_chunks(document=None):
-    chunks = DocumentChunk.objects.filter(
+    chunk_ids = DocumentChunk.objects.filter(
         document=document,
-        embedding__isnull=True
-    )
+    ).values_list("id", flat=True)
+    from documents.tasks import embed_chunk_batch
 
-    texts = [c.text for c in chunks]
-    embeddings = generate_embeddings(texts)
+    bacthes = [
+        chunk_ids[i:i+BATCH_SIZE]
+        for i in range(0, len(chunk_ids), BATCH_SIZE)
+    ]
 
-    for chunk, emb in zip(chunks, embeddings):
-        chunk.embedding = emb
-    DocumentChunk.objects.bulk_update(
-        chunks,
-        ["embedding"]
-    )
+    group(
+        embed_chunk_batch.s(batch)
+        for batch in bacthes
+    ).apply_async()

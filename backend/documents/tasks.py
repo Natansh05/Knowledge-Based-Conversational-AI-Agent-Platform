@@ -1,5 +1,5 @@
 from celery import shared_task
-from .models import Document
+from .models import Document, DocumentChunk
 from core.storage.s3 import S3Client
 from django_tenants.utils import schema_context
 from rag.pipepline import process_document_pipeline
@@ -52,3 +52,20 @@ def extract_and_save_meta(doc):
     # 3. Save in Document.meta_data
     doc.meta_data = {"topics": topics}
     doc.save()
+
+@shared_task
+def embed_chunk_batch(chunk_ids):
+    chunks = list(
+        DocumentChunk.objects.filter(id__in=chunk_ids)
+    )
+
+    texts = [c.text for c in chunks]
+
+    from rag.processors.embeddings import generate_embeddings
+    embeddings = generate_embeddings(texts)
+    for chunk, emb in zip(chunks, embeddings):
+        chunk.embedding = emb
+    DocumentChunk.objects.bulk_update(
+        chunks,
+        ["embedding"]
+    )

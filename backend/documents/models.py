@@ -45,5 +45,5 @@ class DocumentChunk(models.Model):
         ordering = ["chunk_index"]
         unique_together = ["document", "chunk_index"]
         indexes = [
-            models.Index(fields=["document"])
+            models.Index(fields=["document", "embedding"], name="document_embedding_idx"),
         ]
