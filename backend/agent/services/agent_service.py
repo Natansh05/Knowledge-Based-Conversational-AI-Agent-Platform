@@ -1,5 +1,5 @@
 from agent.models import Agent
-from rag.processors.retriever import retrieve_chunks
+from rag.processors.retriever import retrieve_chunks, format_history
 from rag.processors.chunker import build_context
 from rag.llm.base import GeminiProvider
 from rag.processors.embeddings import is_query_allowed
@@ -30,8 +30,11 @@ def generate_agent_answer(agent_id, question, history):
             set_cache(cache_key, result)
         return result
 
-    # 3.Retrieval
-    retrieval = retrieve_chunks(question, agent)
+    # 3. Query rewriting — turn follow-up questions into self-contained retrieval queries
+    retrieval_query = rewrite_query_with_history(question, history, provider)
+
+    # 4.Retrieval
+    retrieval = retrieve_chunks(retrieval_query, agent)
     status = retrieval.get("status", "low")
     chunks = retrieval.get("chunks", [])
     top_score = retrieval.get("top_score", 0.0)
@@ -99,6 +102,37 @@ def generate_agent_answer(agent_id, question, history):
     if answer:
         set_cache(cache_key, result)
     return result
+
+
+def rewrite_query_with_history(question, history, provider):
+    """
+    Rewrites a follow-up question into a standalone, context-rich search query
+    using recent conversation history. This prevents retrieval failures where
+    short follow-ups like "What about the pricing?" lack enough signal for the
+    vector search or reranker to find relevant chunks.
+
+    Only rewrites when history is present. Returns original question unchanged
+    if history is empty or the LLM call fails.
+    """
+    if not history:
+        return question
+
+    formatted = format_history(history)
+    prompt = f"""Conversation so far:
+    {formatted}
+
+    Follow-up question: "{question}"
+
+    Rewrite the follow-up question as a single, self-contained search query that includes all necessary context from the conversation above. If the question is already self-contained and needs no context, return it unchanged.
+    Return ONLY the rewritten query, with no explanation or punctuation changes.
+    """
+
+    rewritten = provider.generate(
+        system_prompt="You are a search query rewriting assistant. Output only the rewritten query, nothing else.",
+        question=prompt,
+        history=[]
+    )
+    return rewritten.strip() if rewritten else question
 
 
 def generate_fallback_llm(agent, question, history, system_prompt=None, top_score=None):
