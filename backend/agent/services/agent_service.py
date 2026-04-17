@@ -42,7 +42,7 @@ def generate_agent_answer(agent_id, question, history):
 
     # 4.Routing Logic
     if status == "low":
-        answer = generate_fallback_llm(agent, question, history, agent.system_prompt, top_score)
+        answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
         result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
         if answer:
             set_cache(cache_key, result)
@@ -117,6 +117,7 @@ def generate_fallback_llm(agent, question, history, system_prompt=None, top_scor
             doc_topics.append(f"{doc.name}: (no topics extracted)")
 
     provider = GeminiProvider()
+    print(f"Extracted doc topics for fallback: {doc_topics}")
 
     # Dynamic instruction block
     if top_score is not None and top_score < 0.1:

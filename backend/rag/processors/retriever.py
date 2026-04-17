@@ -7,9 +7,14 @@ from chat.models import ChatMessage
 from sentence_transformers import CrossEncoder
 from scipy.special import expit
 
-AVG_SIMILARITY_THRESHOLD = 0.3
-TOP_SIMILARITY_THRESHOLD = 0.6
-MIN_CHUNK_SCORE = 0.3
+AVG_SIMILARITY_THRESHOLD = 0.3         # "low" boundary
+TOP_SIMILARITY_THRESHOLD = 0.6         # "high" zone entry
+MIN_CHUNK_SCORE = 0.3                  # filter floor
+VERY_HIGH_THRESHOLD = 0.72             # above this, always "high", never "ambiguous"
+AMBIGUITY_GAP_THRESHOLD = 0.05         # replaces hardcoded 0.05 — needs a meaningful gap
+AMBIGUITY_SECOND_SCORE_MIN = 0.45      # second chunk must be meaningfully high to trigger ambiguous
+PARTIAL_GRAY_ZONE_MIN = 0.42           # lower bound for partial-zone ambiguity
+PARTIAL_GRAY_ZONE_MAX = 0.60           # upper bound for partial-zone ambiguity
 reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
 def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
 
@@ -47,41 +52,48 @@ def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
     # sort by reranker score descending
     # reranked_chunks = [chunk for _,chunk in sorted(zip(scores, results), reverse=True)]
 
-    if top_score > TOP_SIMILARITY_THRESHOLD:
-        status = "high"
-    elif avg_score < AVG_SIMILARITY_THRESHOLD:
-        status = "low"
-    else:
-        status = "partial"
-
     sorted_scores = sorted(norm_scores, reverse=True)
-
-    # wE CAN LOOK FOR AMIBIGUITY BY CHECKING SCORE GAP WHEN CHUKS ARE DISTRIBUTED AROUND THE TOPIC
-    # HERE IN CASE OF RECURSIVE CHUNKING, CHUNK SCORES CAN BE OVERLAPPING
-    # NEEDS TO DEPEND ON CHUNKING STRATEGY AND VECTOR DB PERFORMANCE
-
 
     if len(sorted_scores) > 1:
         score_gap = sorted_scores[0] - sorted_scores[1]
+        second_score = sorted_scores[1]
     else:
+        # Single chunk: no competitor, so no ambiguity possible
         score_gap = sorted_scores[0]
+        second_score = 0.0
 
     top_score = sorted_scores[0]
 
-    if top_score > TOP_SIMILARITY_THRESHOLD:
-        if score_gap < 0.05:
+    if top_score > VERY_HIGH_THRESHOLD:
+        # Very high confidence: always answer, never ambiguous.
+        # Two overlapping chunks both scoring above this threshold means the
+        # document clearly covers this query — a small gap is just natural
+        # variance from chunk overlap, not a sign of ambiguity.
+        status = "high"
+
+    elif top_score > TOP_SIMILARITY_THRESHOLD:
+        # Moderate-high zone (0.60–0.72): only ambiguous if both the gap is
+        # small AND the second chunk is itself meaningfully high — indicating
+        # two genuinely competing chunks rather than one clear leader.
+        if score_gap < AMBIGUITY_GAP_THRESHOLD and second_score > AMBIGUITY_SECOND_SCORE_MIN:
             status = "ambiguous"
         else:
             status = "high"
 
     elif avg_score < AVG_SIMILARITY_THRESHOLD:
+        # Average score too low — document set has no meaningful coverage.
         status = "low"
 
-    elif score_gap < 0.05:
-        status = "ambiguous"
-
     else:
-        status = "partial"
+        # Partial zone (avg >= 0.30, top_score 0.30–0.60): only ambiguous if
+        # both top and second scores are in the gray zone AND gap is small,
+        # indicating the query genuinely matches two different sub-topics.
+        in_gray_zone = PARTIAL_GRAY_ZONE_MIN < top_score < PARTIAL_GRAY_ZONE_MAX
+        second_in_gray_zone = PARTIAL_GRAY_ZONE_MIN < second_score < PARTIAL_GRAY_ZONE_MAX
+        if in_gray_zone and second_in_gray_zone and score_gap < AMBIGUITY_GAP_THRESHOLD:
+            status = "ambiguous"
+        else:
+            status = "partial"
 
     scored_chunks = sorted(zip(norm_scores, results), key=lambda x: x[0], reverse=True)
 
