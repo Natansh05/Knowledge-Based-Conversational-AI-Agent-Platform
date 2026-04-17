@@ -31,7 +31,9 @@ def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
             "status": "low",
             "top_score": 0.0,
             "avg_score": 0.0,
-            "chunks": []
+            "chunks": [],
+            "chunk_ids": [],
+            "chunk_scores": [],
         }
     
     # Rerank with cross encoder
@@ -86,11 +88,6 @@ def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
     reranked_chunks = [chunk for score, chunk in scored_chunks]
     sorted_scores = [score for score, chunk in scored_chunks]
 
-    filtered_chunks = [
-        chunk for score, chunk in zip(norm_scores, reranked_chunks) 
-        if score >= MIN_CHUNK_SCORE
-    ]
-
     if top_score > 0.7:
         top_k = 2
     elif top_score > 0.5:
@@ -98,12 +95,21 @@ def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
     else:
         top_k = 0
 
-    # context_found = not (top_score < TOP_SIMILARITY_THRESHOLD and avg_score < AVG_SIMILARITY_THRESHOLD)
+    # Filter and select from already-sorted score-chunk pairs (fixes score/chunk alignment)
+    filtered_pairs = [
+        (score, chunk)
+        for score, chunk in scored_chunks
+        if score >= MIN_CHUNK_SCORE
+    ]
+    selected_pairs = filtered_pairs[:top_k]
+
     return {
         "status": status,
         "top_score": float(top_score),
         "avg_score": float(avg_score),
-        "chunks": filtered_chunks[:top_k]
+        "chunks": [chunk for _, chunk in selected_pairs],
+        "chunk_ids": [chunk.id for _, chunk in selected_pairs],
+        "chunk_scores": [float(score) for score, _ in selected_pairs],
     }
 
 def get_history(chat):

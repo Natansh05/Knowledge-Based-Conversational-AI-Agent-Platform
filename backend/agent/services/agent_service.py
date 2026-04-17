@@ -13,6 +13,8 @@ def generate_agent_answer(agent_id, question, history):
     cached_response = get_cache(cache_key)
     if cached_response:
         print("CACHE HIT")
+        if isinstance(cached_response, str):  # handle legacy cache entries
+            return {"answer": cached_response, "chunk_ids": [], "chunk_scores": []}
         return cached_response
 
     print("CACHE MISS")
@@ -23,38 +25,44 @@ def generate_agent_answer(agent_id, question, history):
     # 2.Guardrail: check if query is allowed
     if not is_query_allowed(question):
         answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
+        result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
         if answer:
-            set_cache(cache_key, answer)
-        return answer
+            set_cache(cache_key, result)
+        return result
 
     # 3.Retrieval
-    result = retrieve_chunks(question, agent)
-    status = result.get("status", "low")
-    chunks = result.get("chunks", [])
-    top_score = result.get("top_score", 0.0)
+    retrieval = retrieve_chunks(question, agent)
+    status = retrieval.get("status", "low")
+    chunks = retrieval.get("chunks", [])
+    top_score = retrieval.get("top_score", 0.0)
+    chunk_ids = retrieval.get("chunk_ids", [])
+    chunk_scores = retrieval.get("chunk_scores", [])
 
-    print(result)
+    print(retrieval)
 
     # 4.Routing Logic
     if status == "low":
         answer = generate_fallback_llm(agent, question, history, agent.system_prompt, top_score)
+        result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
         if answer:
-            set_cache(cache_key, answer)
-        return answer
+            set_cache(cache_key, result)
+        return result
 
     elif status in ["partial", "ambiguous"]:
         answer = generate_clarification_llm(agent, question, chunks, history)
+        result = {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
         if answer:
-            set_cache(cache_key, answer)
-        return answer
+            set_cache(cache_key, result)
+        return result
 
     elif status == "high":
         # Handle edge case: no chunks
         if not chunks:
             answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
+            result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
             if answer:
-                set_cache(cache_key, answer)
-            return answer
+                set_cache(cache_key, result)
+            return result
 
         # Build context safely
         context = build_context(chunks) if chunks else ""
@@ -80,16 +88,17 @@ def generate_agent_answer(agent_id, question, history):
             history=[]
         )
 
+        result = {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
         if answer:
-            set_cache(cache_key, answer)
-
-        return answer
+            set_cache(cache_key, result)
+        return result
 
     # Safety fallback
     answer = generate_fallback_llm(agent, question, history)
+    result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
     if answer:
-        set_cache(cache_key, answer)
-    return answer
+        set_cache(cache_key, result)
+    return result
 
 
 def generate_fallback_llm(agent, question, history, system_prompt=None, top_score=None):
