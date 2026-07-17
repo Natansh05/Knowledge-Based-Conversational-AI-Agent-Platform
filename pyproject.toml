@@ -1,0 +1,51 @@
+[project]
+name = "knowledge-based-conversational-ai-agent-platform"
+version = "0.1.0"
+description = "Multi-tenant Retrieval-Augmented Generation (RAG) platform built with Django, React, PostgreSQL (pgvector), Redis, Celery and Gemini."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+    "django==6.0.2",
+    "djangorestframework",
+    "djangorestframework-simplejwt",
+    "django-cors-headers",
+    "django-tenants",
+    "django-celery-results",
+    "django-invitations",
+    "django-model-utils",
+    "django-phonenumber-field",
+
+    "celery",
+    "redis",
+
+    "psycopg2-binary",
+    "pgvector",
+
+    "google-generativeai",
+
+    "langchain",
+    "langchain-text-splitters",
+    "langgraph",
+
+    "sentence-transformers",
+    "torch",
+    "transformers",
+
+    "PyMuPDF",
+    "python-docx",
+
+    "python-decouple",
+
+    "boto3",
+
+    "huggingface-hub",
+
+    "numpy",
+    "scikit-learn",
+
+    "requests",
+    "httpx",
+    "lxml",
+    "orjson",
+]
