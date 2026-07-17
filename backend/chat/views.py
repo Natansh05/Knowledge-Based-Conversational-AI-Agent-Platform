@@ -90,15 +90,20 @@ class SendMessage(APIView):
             content=message
         )
 
-        # TODO: call RAG pipeline
         history = get_history(chat)
-        answer = generate_agent_answer(agent_id=chat.agent.id, question=message, history=history)
+        result = generate_agent_answer(agent_id=chat.agent.id, question=message, history=history)
 
-        # Save assistant response
+        answer = result.get("answer", "")
+        chunk_ids = result.get("chunk_ids", [])
+        chunk_scores = result.get("chunk_scores", [])
+
+        # Save assistant response with chunk tracking
         ChatMessage.objects.create(
             chat_session=chat,
             role="assistant",
-            content=answer
+            content=answer,
+            retrieved_chunk_ids=chunk_ids,
+            similarity_scores=chunk_scores,
         )
 
         return Response({

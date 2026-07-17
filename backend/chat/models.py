@@ -27,6 +27,8 @@ class ChatMessage(models.Model):
     )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
     content = models.TextField()
+    retrieved_chunk_ids = models.JSONField(default=list, blank=True)
+    similarity_scores = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

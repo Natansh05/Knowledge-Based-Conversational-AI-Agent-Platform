@@ -4,7 +4,8 @@ from .views import (
     CookieTokenRefreshView,
     LogoutView,
     ApiRootView,
-    MeView
+    MeView,
+    dashboard_metrics
 )
 from documents.views import get_download_url, getAllDocuments, upload_document, update_document, delete_document
 from django.urls import include
@@ -27,5 +28,8 @@ urlpatterns = [
     path('agent/', include('agent.urls')),
 
     # Chat based urls
-    path('chat/', include('chat.urls'))
+    path('chat/', include('chat.urls')),
+
+    # Metrics
+    path("metrics/", dashboard_metrics, name="dashboard-metrics"),
 ]

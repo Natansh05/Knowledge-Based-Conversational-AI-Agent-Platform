@@ -20,6 +20,7 @@ class Document(models.Model):
     last_modified_at = models.DateTimeField(auto_now=True)
 
     accessible_by = models.ManyToManyField(User, related_name="accessible_documents", blank=True)
+    meta_data = models.JSONField(blank=True, default=dict)
 
 class DocumentChunk(models.Model):
     document = models.ForeignKey(
@@ -44,5 +45,5 @@ class DocumentChunk(models.Model):
         ordering = ["chunk_index"]
         unique_together = ["document", "chunk_index"]
         indexes = [
-            models.Index(fields=["document"])
+            models.Index(fields=["document", "embedding"], name="document_embedding_idx"),
         ]

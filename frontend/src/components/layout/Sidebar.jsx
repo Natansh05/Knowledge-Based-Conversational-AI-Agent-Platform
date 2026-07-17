@@ -54,9 +54,9 @@ export default function Sidebar({ collapsed }) {
         )}
 
         <nav className="flex flex-col gap-1">
-          <NavLink to={`/${org}/dashboard`} className={linkClass}>
+          <NavLink to={`/${org}/metrics`} className={linkClass}>
             <span>📊</span>
-            {!collapsed && <span className="ml-3">Dashboard</span>}
+            {!collapsed && <span className="ml-3">Metrics</span>}
           </NavLink>
 
           <NavLink to={`/${org}/agents`} className={linkClass}>
@@ -68,6 +68,12 @@ export default function Sidebar({ collapsed }) {
             <span>📄</span>
             {!collapsed && <span className="ml-3">Documents</span>}
           </NavLink>
+
+          <NavLink to={`/${org}/profile`} className={linkClass}>
+            <span>📊</span>
+            {!collapsed && <span className="ml-3">Profile</span>}
+          </NavLink>
+          
         </nav>
       </div>
 

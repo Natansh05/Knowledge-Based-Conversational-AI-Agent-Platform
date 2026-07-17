@@ -8,7 +8,7 @@ import MultiSelectDropdown from "../components/MultiSelectDropdown";
 const CreateEditAgentPage = () => {
   const { getDocs, createAgent, getAgentById, updateAgent, getTags, createTag } = useAuth();
   const navigate = useNavigate();
-  const { org, agentId } = useParams(); // agentId exists only for edit
+  const { org, agentId } = useParams();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -34,7 +34,7 @@ const CreateEditAgentPage = () => {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [name, systemPrompt, selectedDocuments, selectedTags]);
 
-  // Fetch all documents
+  // Fetch documents
   useEffect(() => {
     const fetchAllDocs = async () => {
       setLoadingDocs(true);
@@ -62,7 +62,7 @@ const CreateEditAgentPage = () => {
     fetchAllDocs();
   }, [getDocs]);
 
-  // Fetch agent details if editing
+  // Fetch agent (edit mode)
   useEffect(() => {
     if (!isEditMode) return;
 
@@ -73,7 +73,6 @@ const CreateEditAgentPage = () => {
         setName(agent.name);
         setDescription(agent.description || "");
         setSystemPrompt(agent.system_prompt || "");
-        // ✅ store full objects for selectedDocuments
         setSelectedDocuments(agent.documents_detail || []);
         setSelectedTags(agent.tags_detail || []);
       } catch (err) {
@@ -100,7 +99,7 @@ const CreateEditAgentPage = () => {
         name,
         description,
         system_prompt: systemPrompt,
-        documents: selectedDocuments.map(d => d.id), // send IDs to backend
+        documents: selectedDocuments.map(d => d.id),
         tags: selectedTags.map(t => t.id),
       };
 
@@ -122,41 +121,46 @@ const CreateEditAgentPage = () => {
   };
 
   if (isEditMode && loadingAgent) {
-    return <p className="p-6">Loading agent...</p>;
+    return <p className="p-6 text-sm text-gray-500">Loading agent...</p>;
   }
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 overflow-hidden">
-      <div className="flex-1 overflow-y-auto scroll-smooth">
-        <div className="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Left Form */}
-          <div className="lg:col-span-2 space-y-6">
+    <div className="h-full flex flex-col bg-gray-50">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
+
+          {/* LEFT SIDE */}
+          <div className="md:col-span-2 space-y-5 sm:space-y-6">
+
             <button
               onClick={() => navigate(`/${org}/agents`)}
-              className="text-sm text-gray-500 hover:text-gray-800 mb-2"
+              className="text-sm text-gray-500 hover:text-gray-800"
             >
               ← Back to Agents
             </button>
 
-            <h1 className="text-3xl font-semibold text-gray-900 mb-1">
-              {isEditMode ? "Edit Agent" : "Create New Agent"}
-            </h1>
-            <p className="text-gray-500 text-sm mb-4">
-              Fill out all fields to define your agent’s behavior and knowledge sources.
-            </p>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900">
+                {isEditMode ? "Edit Agent" : "Create New Agent"}
+              </h1>
+              <p className="text-gray-500 text-sm mt-1">
+                Define your agent’s behavior and knowledge sources.
+              </p>
+            </div>
 
             {/* Basic Info */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border space-y-4">
-              <h2 className="text-lg font-medium">Basic Info</h2>
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border space-y-4">
+              <h2 className="text-base sm:text-lg font-medium">Basic Info</h2>
+
               <input
-                className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-gray-300"
+                className="w-full border rounded-md px-3 py-2 text-sm sm:text-base focus:ring-2 focus:ring-gray-300"
                 placeholder="Agent Name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
+
               <textarea
-                className="w-full border rounded-md px-3 py-2 focus:ring-2 focus:ring-gray-300"
+                className="w-full border rounded-md px-3 py-2 text-sm sm:text-base focus:ring-2 focus:ring-gray-300"
                 placeholder="Description (optional)"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -164,11 +168,12 @@ const CreateEditAgentPage = () => {
             </div>
 
             {/* System Prompt */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border space-y-2">
-              <h2 className="text-lg font-medium">🧠 System Prompt</h2>
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border space-y-2">
+              <h2 className="text-base sm:text-lg font-medium">🧠 System Prompt</h2>
+
               <textarea
-                className="w-full border rounded-md px-3 py-3 font-mono text-sm focus:ring-2 focus:ring-gray-300"
-                style={{ minHeight: "200px" }}
+                className="w-full border rounded-md px-3 py-3 font-mono text-xs sm:text-sm focus:ring-2 focus:ring-gray-300"
+                style={{ minHeight: "180px" }}
                 placeholder="Define how the agent should behave..."
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
@@ -176,14 +181,15 @@ const CreateEditAgentPage = () => {
             </div>
 
             {/* Documents */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border space-y-3">
-              <h2 className="text-lg font-medium">📄 Documents</h2>
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border space-y-3">
+              <h2 className="text-base sm:text-lg font-medium">📄 Documents</h2>
+
               {loadingDocs ? (
                 <p className="text-sm text-gray-500">Loading documents...</p>
               ) : (
                 <MultiSelectDropdown
-                  options={documents}                     // all docs
-                  selectedValues={selectedDocuments.map(d => d.id)}  // only IDs
+                  options={documents}
+                  selectedValues={selectedDocuments.map(d => d.id)}
                   onChange={(ids) => {
                     const selectedDocs = documents.filter(doc => ids.includes(doc.id));
                     setSelectedDocuments(selectedDocs);
@@ -196,8 +202,9 @@ const CreateEditAgentPage = () => {
             </div>
 
             {/* Tags */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border">
-              <h2 className="text-lg font-medium mb-2">🏷️ Tags</h2>
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border">
+              <h2 className="text-base sm:text-lg font-medium mb-2">🏷️ Tags</h2>
+
               <TagSelector
                 selectedTags={selectedTags}
                 setSelectedTags={setSelectedTags}
@@ -207,26 +214,29 @@ const CreateEditAgentPage = () => {
             </div>
 
             {/* Submit */}
-            <div className="text-right">
+            <div className="pt-2">
               <button
                 onClick={handleSubmit}
                 disabled={creatingOrUpdating}
-                className="px-6 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
+                className="w-full sm:w-auto px-6 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
               >
-                {creatingOrUpdating ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update Agent" : "Create Agent")}
+                {creatingOrUpdating
+                  ? (isEditMode ? "Updating..." : "Creating...")
+                  : (isEditMode ? "Update Agent" : "Create Agent")}
               </button>
             </div>
           </div>
 
-          {/* Sidebar Tips */}
-          <div className="hidden lg:flex flex-col gap-6 mt-12">
-            <div className="bg-white p-6 rounded-xl shadow-sm border space-y-2">
+          {/* RIGHT SIDE (Tips) */}
+          <div className="md:col-span-2 lg:col-span-1">
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-sm border space-y-2 lg:sticky lg:top-6">
               <h3 className="font-semibold text-gray-900">💡 Tips</h3>
+
               <ul className="text-sm text-gray-500 list-disc list-inside space-y-1">
-                <li>System Prompt defines the agent’s behavior and tone.</li>
-                <li>Select relevant documents for better knowledge retrieval.</li>
-                <li>Use tags to categorize agents for easier search.</li>
-                <li>All fields except description are mandatory.</li>
+                <li>System Prompt defines behavior and tone.</li>
+                <li>Attach relevant documents for better responses.</li>
+                <li>Use tags for easy organization.</li>
+                <li>Description is optional; others are required.</li>
               </ul>
             </div>
           </div>

@@ -7,12 +7,12 @@ import FutureSection from "../components/FutureSection";
 import { useTitle } from "../components/layout/TitleContext";
 import usePageTitle from "../components/layout/usePageTitle";
 
-export default function Dashboard() {
+export default function UserProfile() {
   const { user } = useAuth();
-  usePageTitle("Dashboard")
+  usePageTitle("User Profile")
   
   return (
-    <div className="dashboard-page flex-1 bg-white p-10 rounded-lg mx-auto max-w-7xl w-full flex flex-col h-full overflow-auto">
+    <div className="dashboard-page flex-1 bg-white p-10 rounded-lg w-full flex flex-col h-full overflow-auto">
       <ProfileHeader user={user} />
       <AccountDetails user={user} />
       {user?.role === 1 && <UsersTable />}

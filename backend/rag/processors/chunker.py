@@ -28,13 +28,13 @@ def save_chunks(document, chunks):
             )
         )
 
-    DocumentChunk.objects.bulk_create(chunk_objects)
+    DocumentChunk.objects.bulk_create(chunk_objects, batch_size=500)
 
 def build_context(chunks, max_chars=6000):
     context = ""
     for chunk in chunks:
         if len(context) + len(chunk.text) > max_chars:
             break
-        context += chunk.text + "\n\n"
+        context += chunk.text + "\n\n ------ \n\n"
 
     return context

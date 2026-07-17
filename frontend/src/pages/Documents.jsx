@@ -6,7 +6,8 @@ import { useTitle } from "../components/layout/TitleContext";
 import { useOutletContext } from "react-router-dom";
 import DocumentUpdateModal from "../components/DocumentUpdateModal";
 import toast from "react-hot-toast";
-// Simple debounce helper
+
+// Debounce helper
 const debounce = (func, delay = 300) => {
   let timer;
   return (...args) => {
@@ -16,18 +17,18 @@ const debounce = (func, delay = 300) => {
 };
 
 export default function DocumentsPage() {
-  const { getDocs, fetchUsers, downloadDoc, updateDoc, user} = useAuth();
+  const { getDocs, fetchUsers, downloadDoc, user } = useAuth();
   const { setTitle } = useTitle();
   const { setTopBarActions } = useOutletContext() || {};
 
   const todayDateStr = new Date().toISOString().split("T")[0];
-  const [downloadingId, setDownloadingId] = useState(null); 
+
   const [documents, setDocuments] = useState([]);
   const [users, setUsers] = useState([]);
-
-
-  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState(null);
+
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   const [filters, setFilters] = useState({
     search: "",
@@ -45,8 +46,6 @@ export default function DocumentsPage() {
     current_page: 1,
   });
 
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-
   const fileTypeOptions = [
     { id: "application/pdf", name: "PDF" },
     { id: "docx", name: "DOCX" },
@@ -54,18 +53,16 @@ export default function DocumentsPage() {
     { id: "text/csv", name: "CSV" },
   ];
 
-  // -----------------------------
-  // Set page title
-  // -----------------------------
+  // Title
   useEffect(() => setTitle("Documents"), [setTitle]);
 
-  // Top bar "Add New"
+  // Top bar button
   useEffect(() => {
     if (setTopBarActions) {
       setTopBarActions(
         <button
           onClick={() => setIsUploadModalOpen(true)}
-          className="h-8 px-3 text-sm font-medium flex items-center justify-center bg-gray-900 text-white rounded hover:bg-gray-800"
+          className="h-8 px-3 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
         >
           Add New
         </button>
@@ -74,31 +71,20 @@ export default function DocumentsPage() {
     return () => setTopBarActions?.(null);
   }, [setTopBarActions]);
 
-  // -----------------------------
-  // Fetch users ONCE
-  // -----------------------------
+  // Fetch users
   useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        const res = await fetchUsers();
-        setUsers(res || []);
-      } catch (err) {
-        toast.error("Failed to fetch users", err);
-      }
-    };
-    loadUsers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once on mount
+    fetchUsers()
+      .then(res => setUsers(res || []))
+      .catch(() => toast.error("Failed to fetch users"));
+  }, []);
 
-  // -----------------------------
   // Fetch documents
-  // -----------------------------
   const fetchDocuments = useCallback(async () => {
     try {
       const data = await getDocs(
         {
           ...filters,
-          uploaded_by: filters.uploaded_by.join(","), // CSV string for stable dep
+          uploaded_by: filters.uploaded_by.join(","),
           file_type: filters.file_type.join(","),
         },
         pagination.page,
@@ -108,11 +94,11 @@ export default function DocumentsPage() {
       setDocuments(data.results || []);
       setPagination(prev => ({
         ...prev,
-        num_pages: data.num_pages || prev.num_pages,
-        current_page: data.current_page || prev.current_page,
+        num_pages: data.num_pages || 1,
+        current_page: data.current_page || 1,
       }));
-    } catch (err) {
-      toast.error("Failed to fetch documents", err);
+    } catch {
+      toast.error("Failed to fetch documents");
     }
   }, [
     getDocs,
@@ -126,298 +112,246 @@ export default function DocumentsPage() {
     pagination.page_size,
   ]);
 
-  // Run fetchDocuments when relevant primitive values change
   useEffect(() => {
     fetchDocuments();
   }, [fetchDocuments]);
 
-  // -----------------------------
   // Handlers
-  // -----------------------------
   const handleFilterChange = e => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
-  const handleDelete = async (id) => {
-    try {
-      // TODO: call delete API
-      console.log("Delete doc:", id);
-    } catch (err) {
-      toast.error("Failed to delete document", err);
-    }
-  };
-
-  const handleUpdate = (doc) => {
-    if(doc.uploaded_by != user.id){
+  const handleUpdate = doc => {
+    if (doc.uploaded_by !== user.id) {
       toast.error("Only owner can update the document");
       return;
     }
     setSelectedDoc(doc);
     setIsUpdateModalOpen(true);
-    console.log("Update doc:", doc);
   };
-
-  const closeUpdateModal = () => {
-  setIsUpdateModalOpen(false);
-  setSelectedDoc(null);
-};
 
   const debouncedSearchChange = debounce(value => {
     setFilters(prev => ({ ...prev, search: value }));
     setPagination(prev => ({ ...prev, page: 1 }));
-  }, 300);
+  });
 
-  const handlePageChange = newPage =>
-    setPagination(prev => ({ ...prev, page: newPage }));
-
-  const openUploadModal = () => setIsUploadModalOpen(true);
-  const closeUploadModal = () => setIsUploadModalOpen(false);
-
-  const formatFileSize = (bytes) => {
+  const formatFileSize = bytes => {
     if (!bytes) return "—";
-
-    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+    const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
-
     return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
   };
 
-  // -----------------------------
-  // JSX
-  // -----------------------------
   return (
     <div className="p-4 md:p-6 bg-gray-50 min-h-screen">
-      {/* Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {/* Search */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Search by Name
-          </label>
-          <input
-            type="text"
-            name="search"
-            defaultValue={filters.search}
-            onChange={e => debouncedSearchChange(e.target.value)}
-            placeholder="Enter document name"
-            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 text-sm"
-          />
-        </div>
 
-        {/* Date range */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Created Date Range
-          </label>
-          <div className="flex items-center space-x-2">
+      {/* FILTERS */}
+      <div className="relative z-20 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+
+          {/* Search */}
+          <div className="min-w-0 flex flex-col">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Search
+            </label>
             <input
-              type="date"
-              name="start_date"
-              value={filters.start_date}
-              onChange={handleFilterChange}
-              max={filters.end_date}
-              className="px-2 py-1 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 text-sm"
-            />
-            <span className="text-gray-500 text-sm">to</span>
-            <input
-              type="date"
-              name="end_date"
-              value={filters.end_date}
-              onChange={handleFilterChange}
-              min={filters.start_date}
-              className="px-2 py-1 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 text-sm"
+              type="text"
+              placeholder="Search document..."
+              onChange={e => debouncedSearchChange(e.target.value)}
+              className="w-full px-3 py-2 border rounded-md text-sm"
             />
           </div>
-        </div>
 
-        {/* Uploaded By */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Uploaded By
-          </label>
-          <MultiSelectDropdown
-            options={users}
-            labelKey="username"
-            valueKey="id"
-            selectedValues={filters.uploaded_by}
-            onChange={values => {
-              setFilters(prev => ({ ...prev, uploaded_by: values }));
-              setPagination(prev => ({ ...prev, page: 1 }));
-            }}
-            placeholder="Select users"
-          />
-        </div>
+          {/* Date */}
+          <div className="min-w-0 sm:col-span-2 xl:col-span-1 flex flex-col">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Created Date
+            </label>
 
-        {/* File type */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            File Type
-          </label>
-          <MultiSelectDropdown
-            options={fileTypeOptions}
-            labelKey="name"
-            valueKey="id"
-            selectedValues={filters.file_type}
-            onChange={values => {
-              setFilters(prev => ({ ...prev, file_type: values }));
-              setPagination(prev => ({ ...prev, page: 1 }));
-            }}
-            placeholder="Select file types"
-          />
-        </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                name="start_date"
+                value={filters.start_date}
+                onChange={handleFilterChange}
+                className="flex-1 px-3 py-2 border rounded-md text-sm"
+                aria-label="From date"
+                placeholder="From"
+              />
 
-        {/* Status */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Status
-          </label>
-          <select
-            name="status"
-            value={filters.status}
-            onChange={handleFilterChange}
-            className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 text-sm"
-          >
-            <option value="">All</option>
-            <option value="uploaded">Uploaded</option>
-            <option value="processing">Processing</option>
-            <option value="ready">Ready</option>
-            <option value="failed">Failed</option>
-          </select>
+              <span className="text-gray-400 text-sm select-none">—</span>
+
+              <input
+                type="date"
+                name="end_date"
+                value={filters.end_date}
+                onChange={handleFilterChange}
+                className="flex-1 px-3 py-2 border rounded-md text-sm"
+                aria-label="To date"
+                placeholder="To"
+              />
+            </div>
+          </div>
+
+          {/* Uploaded By */}
+          <div className="min-w-0 relative z-30 flex flex-col">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Users
+            </label>
+            <MultiSelectDropdown
+              options={users}
+              labelKey="username"
+              valueKey="id"
+              selectedValues={filters.uploaded_by}
+              onChange={values =>
+                setFilters(prev => ({ ...prev, uploaded_by: values }))
+              }
+              placeholder="Select Users"
+            />
+          </div>
+
+          {/* File Type */}
+          <div className="min-w-0 relative z-30 flex flex-col">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              File Types
+            </label>
+            <MultiSelectDropdown
+              options={fileTypeOptions}
+              labelKey="name"
+              valueKey="id"
+              selectedValues={filters.file_type}
+              onChange={values =>
+                setFilters(prev => ({ ...prev, file_type: values }))
+              }
+              placeholder="Select File Types"
+            />
+          </div>
+
+          {/* Status */}
+          <div className="min-w-0 flex flex-col">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Status
+            </label>
+            <select
+              name="status"
+              value={filters.status}
+              onChange={handleFilterChange}
+              className="w-full px-3 py-2 border rounded-md text-sm"
+            >
+              <option value="">All Status</option>
+              <option value="uploaded">Uploaded</option>
+              <option value="processing">Processing</option>
+              <option value="ready">Ready</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto bg-white rounded-lg shadow-md max-h-[600px] relative">
-        <table className="min-w-full divide-y divide-gray-200 table-auto">
-          <thead className="bg-gray-100 sticky top-0 z-10">
-            <tr>
-              {[
-                "Name",
-                "File Type",
-                "File Size",
-                "Status",
-                "Version",
-                "Created At",
-                "Uploaded By",
-                "Last Modified",
-                "Actions",
-              ].map(col => (
-                <th
-                  key={col}
-                  className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap"
-                >
-                  {col}
-                </th>
-              ))}
-            </tr>
-          </thead>
+      {/* MOBILE CARDS */}
+      <div className="md:hidden space-y-4">
+        {documents.map(doc => (
+          <div key={doc.id} className="bg-white p-4 rounded-lg shadow">
+            <h3 className="font-semibold text-sm">{doc.name}</h3>
 
-          <tbody className="divide-y divide-gray-200">
-            {documents.length === 0 ? (
+            <div className="text-xs text-gray-600 mt-2 space-y-1">
+              <p>Type: {doc.file_type}</p>
+              <p>Size: {formatFileSize(doc.file_size)}</p>
+              <p>Status: {doc.status}</p>
+              <p>
+                Uploaded:{" "}
+                {users.find(u => u.id === doc.uploaded_by)?.username}
+              </p>
+            </div>
+
+            <div className="flex gap-3 mt-3">
+              <button
+                onClick={() => downloadDoc(doc.id)}
+                className="text-green-600 text-xs"
+              >
+                Download
+              </button>
+              <button
+                onClick={() => handleUpdate(doc)}
+                className="text-blue-600 text-xs"
+              >
+                Update
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* DESKTOP TABLE */}
+      <div className="hidden md:block bg-white rounded-lg shadow relative z-10">
+        <div className="overflow-x-auto">
+          <table className="min-w-full">
+            <thead className="bg-gray-100">
               <tr>
-                <td colSpan="9" className="text-center py-6 text-gray-500">
-                  No documents found.
-                </td>
+                {["Name", "Type", "Size", "Status", "Actions"].map(h => (
+                  <th key={h} className="px-4 py-2 text-xs text-left">
+                    {h}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              documents.map(doc => (
-                <tr key={doc.id}>
-                  <td className="px-4 py-2 whitespace-nowrap">{doc.name}</td>
-
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    {fileTypeOptions.find(f => f.id === doc.file_type)?.name ||
-                      doc.file_type}
-                  </td>
-
-                  <td className="px-4 py-2 whitespace-nowrap">
+            </thead>
+            <tbody>
+              {documents.map(doc => (
+                <tr key={doc.id} className="border-t">
+                  <td className="px-4 py-2">{doc.name}</td>
+                  <td className="px-4 py-2">{doc.file_type}</td>
+                  <td className="px-4 py-2">
                     {formatFileSize(doc.file_size)}
                   </td>
-
-                  <td className="px-4 py-2 whitespace-nowrap capitalize">
-                    {doc.status}
-                  </td>
-
-                  <td className="px-4 py-2 whitespace-nowrap">{doc.version}</td>
-
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    {new Date(doc.created_at).toLocaleString()}
-                  </td>
-
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    {users.find(u => u.id === doc.uploaded_by)?.username || "Unknown"}
-                  </td>
-
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    {new Date(doc.last_modified_at).toLocaleString()}
-                  </td>
-
-                  <td className="px-4 py-2 space-x-2">
-  
-                    {/* Download */}
+                  <td className="px-4 py-2">{doc.status}</td>
+                  <td className="px-4 py-2 flex gap-2">
                     <button
                       onClick={() => downloadDoc(doc.id)}
-                      disabled={doc.status !== "ready"}
-                      className={`text-sm ${
-                        doc.status === "ready"
-                          ? "text-green-600 hover:underline"
-                          : "text-gray-400 cursor-not-allowed"
-                      }`}
+                      className="text-green-600 text-sm"
                     >
-                      {/* ⬇️ */}
-                        Download
+                      Download
                     </button>
-
-                    {/* Update */}
                     <button
                       onClick={() => handleUpdate(doc)}
-                      className="text-sm text-blue-600 hover:underline"
+                      className="text-blue-600 text-sm"
                     >
                       Update
                     </button>
-
-                    {/* Delete */}
-                    {/* <button
-                      onClick={() => handleDelete(doc.id)}
-                      className="text-sm text-red-600 hover:underline"
-                    >
-                      🗑
-                    </button> */}
-
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Pagination */}
-      <div className="flex justify-center mt-4 flex-wrap gap-2">
+      {/* PAGINATION */}
+      <div className="flex justify-center mt-4 gap-2 flex-wrap">
         {Array.from({ length: pagination.num_pages }, (_, i) => (
           <button
-            key={i + 1}
-            onClick={() => handlePageChange(i + 1)}
-            className={`px-3 py-1 rounded-md border ${
-              pagination.current_page === i + 1
-                ? "bg-gray-900 text-white"
-                : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}
+            key={i}
+            onClick={() =>
+              setPagination(prev => ({ ...prev, page: i + 1 }))
+            }
+            className="px-3 py-1 border rounded text-sm"
           >
             {i + 1}
           </button>
         ))}
       </div>
 
-      {/* Upload Modal */}
-      {isUploadModalOpen && <DocumentUploadModal onClose={closeUploadModal} />}
+      {/* MODALS */}
+      {isUploadModalOpen && (
+        <DocumentUploadModal onClose={() => setIsUploadModalOpen(false)} />
+      )}
 
-      {/* Update Modal */}
       {isUpdateModalOpen && (
         <DocumentUpdateModal
           doc={selectedDoc}
-          onClose={closeUpdateModal}
+          onClose={() => setIsUpdateModalOpen(false)}
           onSuccess={fetchDocuments}
         />
       )}
