@@ -15,37 +15,29 @@ dependencies = [
     "django-invitations",
     "django-model-utils",
     "django-phonenumber-field",
-
     "celery",
     "redis",
-
     "psycopg2-binary",
     "pgvector",
-
     "google-generativeai",
-
     "langchain",
     "langchain-text-splitters",
     "langgraph",
-
     "sentence-transformers",
     "torch",
     "transformers",
-
     "PyMuPDF",
     "python-docx",
-
     "python-decouple",
-
     "boto3",
-
     "huggingface-hub",
-
     "numpy",
     "scikit-learn",
-
     "requests",
     "httpx",
     "lxml",
     "orjson",
+    "phonenumbers>=9.0.34",
+    "nltk>=3.10.0",
+    "rake-nltk>=1.0.6",
 ]
