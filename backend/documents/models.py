@@ -1,6 +1,6 @@
 from django.db import models
 from users.models import User
-from pgvector.django import VectorField 
+from pgvector.django import VectorField, HnswIndex
 
 # Create your models here.
 class Document(models.Model):
@@ -45,5 +45,12 @@ class DocumentChunk(models.Model):
         ordering = ["chunk_index"]
         unique_together = ["document", "chunk_index"]
         indexes = [
-            models.Index(fields=["document", "embedding"], name="document_embedding_idx"),
+            models.Index(fields=["document"], name="document_chunk_document_idx"),
+            HnswIndex(
+                name="doc_chunk_emb_hnsw_idx",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
+            ),
         ]

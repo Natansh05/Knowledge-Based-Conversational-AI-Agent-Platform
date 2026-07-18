@@ -19,8 +19,8 @@ def process_document(document_id, schema_name):
         # download from s3
         file_path = client.download_file(doc.s3_key, doc.name)
 
-        # chunking and embedding 
-        process_document_pipeline(doc, file_path)
+        # chunking and embedding
+        process_document_pipeline(doc, file_path, schema_name)
 
         # extracting and saving meta data
         extract_and_save_meta(doc)
@@ -54,18 +54,19 @@ def extract_and_save_meta(doc):
     doc.save()
 
 @shared_task
-def embed_chunk_batch(chunk_ids):
-    chunks = list(
-        DocumentChunk.objects.filter(id__in=chunk_ids)
-    )
+def embed_chunk_batch(chunk_ids, schema_name):
+    with schema_context(schema_name):
+        chunks = list(
+            DocumentChunk.objects.filter(id__in=chunk_ids)
+        )
 
-    texts = [c.text for c in chunks]
+        texts = [c.text for c in chunks]
 
-    from rag.processors.embeddings import generate_embeddings
-    embeddings = generate_embeddings(texts)
-    for chunk, emb in zip(chunks, embeddings):
-        chunk.embedding = emb
-    DocumentChunk.objects.bulk_update(
-        chunks,
-        ["embedding"]
-    )
+        from rag.processors.embeddings import generate_embeddings
+        embeddings = generate_embeddings(texts)
+        for chunk, emb in zip(chunks, embeddings):
+            chunk.embedding = emb
+        DocumentChunk.objects.bulk_update(
+            chunks,
+            ["embedding"]
+        )

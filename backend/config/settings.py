@@ -53,6 +53,7 @@ TENANT_APPS = [
 INSTALLED_APPS = SHARED_APPS + TENANT_APPS + [
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
     'corsheaders',
     "django_celery_results",
 ]

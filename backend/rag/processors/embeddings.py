@@ -1,9 +1,19 @@
 # rag.processors.embeddings.py
-from sentence_transformers import SentenceTransformer
+from functools import lru_cache
 from documents.models import DocumentChunk
-# model = SentenceTransformer("all-MiniLM-L6-v2")
-model = SentenceTransformer("all-mpnet-base-v2")
 from celery import group
+
+
+@lru_cache(maxsize=1)
+def get_embedding_model():
+    """
+    Loaded lazily (not at import time) so the model is instantiated inside
+    each Celery worker process after fork(), not in the master before it.
+    Loading torch-backed models before fork() crashes forked children on
+    macOS (torch/objc thread-init vs fork() incompatibility).
+    """
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer("all-mpnet-base-v2")
 
 BLOCKED_PATTERNS = [
     "write code",
@@ -29,7 +39,7 @@ def is_query_allowed(query: str) -> bool:
 
 def generate_embeddings(texts):
 
-    embeddings = model.encode(
+    embeddings = get_embedding_model().encode(
         texts,
         batch_size=32,
         show_progress_bar=False,
@@ -39,7 +49,7 @@ def generate_embeddings(texts):
     return embeddings.tolist()
 
 BATCH_SIZE=64
-def embed_document_chunks(document=None):
+def embed_document_chunks(document=None, schema_name=None):
     chunk_ids = DocumentChunk.objects.filter(
         document=document,
     ).values_list("id", flat=True)
@@ -51,6 +61,6 @@ def embed_document_chunks(document=None):
     ]
 
     group(
-        embed_chunk_batch.s(batch)
+        embed_chunk_batch.s(list(batch), schema_name)
         for batch in bacthes
     ).apply_async()

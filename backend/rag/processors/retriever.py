@@ -1,10 +1,10 @@
 # rag.processors.retriever
+from functools import lru_cache
 from pgvector.django import CosineDistance
 from documents.models import DocumentChunk
 from agent.models import Agent
 from rag.processors.embeddings import generate_embeddings
 from chat.models import ChatMessage
-from sentence_transformers import CrossEncoder
 from scipy.special import expit
 
 AVG_SIMILARITY_THRESHOLD = 0.3         # "low" boundary
@@ -15,7 +15,14 @@ AMBIGUITY_GAP_THRESHOLD = 0.05         # replaces hardcoded 0.05 — needs a mea
 AMBIGUITY_SECOND_SCORE_MIN = 0.45      # second chunk must be meaningfully high to trigger ambiguous
 PARTIAL_GRAY_ZONE_MIN = 0.42           # lower bound for partial-zone ambiguity
 PARTIAL_GRAY_ZONE_MAX = 0.60           # upper bound for partial-zone ambiguity
-reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
+
+
+@lru_cache(maxsize=1)
+def get_reranker():
+    from sentence_transformers import CrossEncoder
+    return CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
+
+
 def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
 
     query_embedding = generate_embeddings([query])[0]
@@ -43,7 +50,7 @@ def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
     
     # Rerank with cross encoder
     pairs = [(query, c.text) for c in results]
-    scores = reranker.predict(pairs)
+    scores = get_reranker().predict(pairs)
     norm_scores = expit(scores)  # Convert to 0-1 range
 
     top_score = norm_scores.max() if len(norm_scores) else 0
