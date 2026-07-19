@@ -1,4 +1,3 @@
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from .models import Agent, Tag
 from .serializer import AgentSerializer, TagSerializer
@@ -7,16 +6,6 @@ from rest_framework import status
 from rest_framework.views import APIView
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
-from .services.agent_service import generate_agent_answer
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def ask_agent(request, agent_id, tenant_slug=''):
-    question = request.data.get("question")
-    answer = generate_agent_answer(agent_id,question=question)
-    return Response({
-        "answer" : answer
-    })
 
 class AgentsView(APIView):
     def get(self, request, tenant_slug=''):
