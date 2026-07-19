@@ -23,31 +23,81 @@ def get_reranker():
     return CrossEncoder('cross-encoder/ms-marco-MiniLM-L-12-v2')
 
 
-def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
+def _empty_retrieval():
+    return {
+        "status": "low",
+        "top_score": 0.0,
+        "avg_score": 0.0,
+        "chunks": [],
+        "chunk_ids": [],
+        "chunk_scores": [],
+    }
 
-    query_embedding = generate_embeddings([query])[0]
-    agent_docs = agent.documents.values_list("id",flat=True)
-    # print(agent_docs)
+
+def _fetch_candidates(query_embedding, agent, rerank_top_n=20):
+    """Vector search: top-N candidate chunks for one query embedding."""
+    agent_docs = agent.documents.values_list("id", flat=True)
     results = (
-            DocumentChunk.objects
-            .filter(document_id__in=agent_docs)
-            .exclude(embedding__isnull=True)
-            .annotate(distance=CosineDistance("embedding", query_embedding))
-            .order_by("distance")
-            .distinct()[:rerank_top_n]
+        DocumentChunk.objects
+        .filter(document_id__in=agent_docs)
+        .exclude(embedding__isnull=True)
+        .annotate(distance=CosineDistance("embedding", query_embedding))
+        .order_by("distance")
+        .distinct()[:rerank_top_n]
     )
+    return list(results)
 
-    results = list(results)
+
+def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
+    query_embedding = generate_embeddings([query])[0]
+    results = _fetch_candidates(query_embedding, agent, rerank_top_n)
+    return _score_and_select(query, results)
+
+
+def _apply_exclusions(chunks, exclusions):
+    """
+    Drop chunks that mention any excluded term (case-insensitive substring), so
+    "smartphones apart from Nokia" never surfaces Nokia chunks. A coarse keyword
+    filter: it removes a chunk if an exclusion term appears anywhere in its text.
+    """
+    if not exclusions:
+        return chunks
+    terms = [t.lower() for t in exclusions if t]
+    if not terms:
+        return chunks
+    return [
+        c for c in chunks
+        if not any(term in (c.text or "").lower() for term in terms)
+    ]
+
+
+def retrieve_for_queries(sub_queries, standalone_query, agent, exclusions=None,
+                         rerank_top_n=20):
+    """
+    Decompose-and-merge retrieval. Fetches candidate chunks for each sub-query,
+    unions them (deduped by chunk id), drops any chunk matching an excluded term,
+    then reranks the merged set once against the standalone query and applies the
+    same zone-scoring/selection as the single-query path. Falls back cleanly to
+    single-query behaviour when there is only one sub-query.
+    """
+    queries = [q for q in (sub_queries or []) if q] or [standalone_query]
+
+    # One batched embedding call for all sub-queries.
+    embeddings = generate_embeddings(queries)
+
+    merged = {}
+    for emb in embeddings:
+        for chunk in _fetch_candidates(emb, agent, rerank_top_n):
+            merged[chunk.id] = chunk  # dedupe by chunk id, keep the object
+
+    candidates = _apply_exclusions(list(merged.values()), exclusions)
+    return _score_and_select(standalone_query, candidates)
+
+
+def _score_and_select(query, results):
     if not results:
-        return {
-            "status": "low",
-            "top_score": 0.0,
-            "avg_score": 0.0,
-            "chunks": [],
-            "chunk_ids": [],
-            "chunk_scores": [],
-        }
-    
+        return _empty_retrieval()
+
     # Rerank with cross encoder
     pairs = [(query, c.text) for c in results]
     scores = get_reranker().predict(pairs)

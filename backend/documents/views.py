@@ -273,6 +273,12 @@ def update_document(request, tenant_slug=None):
         document.status = "uploaded"
         DocumentChunk.objects.filter(document_id=document_id).delete()
 
+        # Bump the content version so any semantic-cache answers derived from the
+        # old file are invalidated (see rag.processors.semantic_cache.
+        # compute_knowledge_version). An explicit `version` in the request below
+        # still overrides this if provided.
+        document.version = (document.version or 0) + 1
+
         # Optionally trigger background processing again
         process_document.delay(document.id, tenant.schema_name)
 

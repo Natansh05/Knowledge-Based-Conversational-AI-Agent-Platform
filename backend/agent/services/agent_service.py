@@ -1,138 +1,98 @@
 from agent.models import Agent
-from rag.processors.retriever import retrieve_chunks, format_history
+from rag.processors.retriever import retrieve_for_queries
 from rag.processors.chunker import build_context
 from rag.llm.base import GeminiProvider
-from rag.processors.embeddings import is_query_allowed
-
-from agent.services.utils.cache import generate_cache_key, get_cache, set_cache
+from rag.processors.embeddings import is_query_allowed, generate_embeddings
+from rag.processors.query_rewriter import QueryRewriter
+from rag.processors import semantic_cache
 
 
 def generate_agent_answer(agent_id, question, history):
-    # 1.Cache
-    cache_key = generate_cache_key(agent_id, question)
-    cached_response = get_cache(cache_key)
-    if cached_response:
-        print("CACHE HIT")
-        if isinstance(cached_response, str):  # handle legacy cache entries
-            return {"answer": cached_response, "chunk_ids": [], "chunk_scores": []}
-        return cached_response
-
-    print("CACHE MISS")
-
     agent = Agent.objects.get(id=agent_id)
-    provider = GeminiProvider()
 
-    # 2.Guardrail: check if query is allowed
+    # 1. Guardrail: reject disallowed queries early (not cached).
     if not is_query_allowed(question):
         answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
-        result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
-        if answer:
-            set_cache(cache_key, result)
-        return result
+        return {"answer": answer, "chunk_ids": [], "chunk_scores": []}
 
-    # 3. Query rewriting — turn follow-up questions into self-contained retrieval queries
-    retrieval_query = rewrite_query_with_history(question, history, provider)
+    # 2. Query understanding: resolve follow-up references into a self-contained
+    #    query, split genuine multi-part questions into sub-queries, and surface
+    #    negation. Cheap (small model) and degrades to the raw question on failure.
+    transform = QueryRewriter().transform(question, history)
+    print(f"QUERY TRANSFORM: {transform}")
 
-    # 4.Retrieval
-    retrieval = retrieve_chunks(retrieval_query, agent)
+    # 3. Semantic cache lookup on the self-contained query. A hit skips the whole
+    #    retrieval + generation pipeline. Compute the knowledge version once and
+    #    reuse it for both lookup and store below.
+    #
+    #    Skip the cache entirely for exclusion queries: the cache key is the
+    #    standalone_query embedding ("smartphones"), which does NOT encode the
+    #    excluded term, so caching would let "smartphones apart from Nokia" and a
+    #    plain "smartphones" collide and return each other's answer.
+    cacheable = not transform.exclusions
+    knowledge_version = semantic_cache.compute_knowledge_version(agent)
+    query_embedding = generate_embeddings([transform.standalone_query])[0]
+    if cacheable:
+        cached = semantic_cache.lookup(agent, query_embedding, knowledge_version)
+        if cached:
+            print("SEMANTIC CACHE HIT")
+            return cached
+        print("SEMANTIC CACHE MISS")
+
+    # 4. Retrieval: decompose-and-merge over the sub-queries, reranked against
+    #    the standalone query.
+    retrieval = retrieve_for_queries(
+        transform.sub_queries, transform.standalone_query, agent,
+        exclusions=transform.exclusions,
+    )
     status = retrieval.get("status", "low")
     chunks = retrieval.get("chunks", [])
-    top_score = retrieval.get("top_score", 0.0)
     chunk_ids = retrieval.get("chunk_ids", [])
     chunk_scores = retrieval.get("chunk_scores", [])
 
     print(retrieval)
 
-    # 4.Routing Logic
-    if status == "low":
+    # 5. Routing logic.
+    if status == "low" or (status == "high" and not chunks):
         answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
-        result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
-        if answer:
-            set_cache(cache_key, result)
-        return result
+        return {"answer": answer, "chunk_ids": [], "chunk_scores": []}
 
-    elif status in ["partial", "ambiguous"]:
+    if status in ("partial", "ambiguous"):
         answer = generate_clarification_llm(agent, question, chunks, history)
-        result = {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
-        if answer:
-            set_cache(cache_key, result)
-        return result
+        return {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
 
-    elif status == "high":
-        # Handle edge case: no chunks
-        if not chunks:
-            answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
-            result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
-            if answer:
-                set_cache(cache_key, result)
-            return result
+    # status == "high" with chunks → answer strictly from context, then cache.
+    context = build_context(chunks)
 
-        # Build context safely
-        context = build_context(chunks) if chunks else ""
+    prompt = f"""
+        You must answer STRICTLY using the provided context.
 
-        prompt = f"""
-            You must answer STRICTLY using the provided context.
+        CONTEXT:
+        {context}
 
-            CONTEXT:
-            {context}
+        RULES:
+        - Answer ONLY from the context above.
+        - Do NOT use prior knowledge.
+        - Do NOT guess.
 
-            RULES:
-            - Answer ONLY from the context above.
-            - Do NOT use prior knowledge.
-            - Do NOT guess.
+        QUESTION:
+        {question}
+        """
 
-            QUESTION:
-            {question}
-            """
-
-        answer = provider.generate(
-            system_prompt=agent.system_prompt,
-            question=prompt,
-            history=[]
-        )
-
-        result = {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
-        if answer:
-            set_cache(cache_key, result)
-        return result
-
-    # Safety fallback
-    answer = generate_fallback_llm(agent, question, history)
-    result = {"answer": answer, "chunk_ids": [], "chunk_scores": []}
-    if answer:
-        set_cache(cache_key, result)
-    return result
-
-
-def rewrite_query_with_history(question, history, provider):
-    """
-    Rewrites a follow-up question into a standalone, context-rich search query
-    using recent conversation history. This prevents retrieval failures where
-    short follow-ups like "What about the pricing?" lack enough signal for the
-    vector search or reranker to find relevant chunks.
-
-    Only rewrites when history is present. Returns original question unchanged
-    if history is empty or the LLM call fails.
-    """
-    if not history:
-        return question
-
-    formatted = format_history(history)
-    prompt = f"""Conversation so far:
-    {formatted}
-
-    Follow-up question: "{question}"
-
-    Rewrite the follow-up question as a single, self-contained search query that includes all necessary context from the conversation above. If the question is already self-contained and needs no context, return it unchanged.
-    Return ONLY the rewritten query, with no explanation or punctuation changes.
-    """
-
-    rewritten = provider.generate(
-        system_prompt="You are a search query rewriting assistant. Output only the rewritten query, nothing else.",
+    provider = GeminiProvider()
+    answer = provider.generate(
+        system_prompt=agent.system_prompt,
         question=prompt,
         history=[]
     )
-    return rewritten.strip() if rewritten else question
+
+    result = {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
+    if answer and cacheable:
+        semantic_cache.store(
+            agent, transform.standalone_query, query_embedding, result,
+            knowledge_version,
+        )
+    return result
 
 
 def generate_fallback_llm(agent, question, history, system_prompt=None, top_score=None):

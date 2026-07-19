@@ -12,9 +12,24 @@ class BaseLLMProvider(ABC):
 
 
 class GeminiProvider(BaseLLMProvider):
-    def __init__(self):
+    def __init__(self, model_name="gemini-2.5-flash"):
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        self.model = genai.GenerativeModel("gemini-2.5-flash")
+        self.model = genai.GenerativeModel(model_name)
+
+    def complete(self, prompt, system_prompt=""):
+        """
+        Raw single-shot completion with no markdown scaffolding or
+        post-processing. Used for structured/utility tasks like query
+        rewriting where the caller needs the model's output verbatim
+        (e.g. JSON), not chat-formatted prose.
+        """
+        parts = []
+        if system_prompt:
+            parts.append(system_prompt)
+        parts.append(prompt)
+
+        response = self.model.generate_content("\n\n".join(parts))
+        return response.text if hasattr(response, "text") else str(response)
 
     def generate(self, system_prompt, history, question):
         """

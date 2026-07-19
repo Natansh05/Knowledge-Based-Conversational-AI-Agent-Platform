@@ -218,6 +218,19 @@ MEDIA_PATH = '/tmp'
 # GEMINI Configuration
 GEMINI_API_KEY = config("GEMINI_API_KEY")
 
+# Query rewriting: small/cheap model used to turn raw questions into
+# self-contained, decomposed retrieval queries (see rag.processors.query_rewriter).
+REWRITER_MODEL = config("REWRITER_MODEL", default="gemini-2.5-flash-lite")
+
+# Semantic cache (pgvector-backed, see rag.processors.semantic_cache).
+# Distance is cosine distance (1 - cosine similarity); 0.08 ≈ 0.92 similarity.
+# Strict by design so only near-paraphrases hit; tune against real queries.
+SEMANTIC_CACHE_ENABLED = config("SEMANTIC_CACHE_ENABLED", cast=bool, default=True)
+SEMANTIC_CACHE_DISTANCE_THRESHOLD = config(
+    "SEMANTIC_CACHE_DISTANCE_THRESHOLD", cast=float, default=0.08
+)
+SEMANTIC_CACHE_TTL = config("SEMANTIC_CACHE_TTL", cast=int, default=1800)
+
 # HUGGING FACE LOGIN
 from huggingface_hub import login
 import os

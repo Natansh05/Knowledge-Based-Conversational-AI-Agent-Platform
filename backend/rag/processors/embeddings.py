@@ -3,6 +3,12 @@ from functools import lru_cache
 from documents.models import DocumentChunk
 from celery import group
 
+# Single source of truth for the embedding model. Stored on semantic cache
+# entries so that a model swap (different vector space / dimensions) never
+# matches stale embeddings. If you change this, also update the VectorField
+# dimensions on DocumentChunk / SemanticCacheEntry and re-embed.
+EMBEDDING_MODEL_NAME = "all-mpnet-base-v2"
+
 
 @lru_cache(maxsize=1)
 def get_embedding_model():
@@ -13,7 +19,7 @@ def get_embedding_model():
     macOS (torch/objc thread-init vs fork() incompatibility).
     """
     from sentence_transformers import SentenceTransformer
-    return SentenceTransformer("all-mpnet-base-v2")
+    return SentenceTransformer(EMBEDDING_MODEL_NAME)
 
 BLOCKED_PATTERNS = [
     "write code",
