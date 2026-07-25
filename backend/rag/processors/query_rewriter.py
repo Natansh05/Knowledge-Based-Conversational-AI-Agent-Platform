@@ -76,7 +76,7 @@ Rewrite it for document search. Return a JSON object with exactly these keys:
   genuinely distinct things, split it into one search query per thing. If it is
   a single-topic question, return a list with just the standalone_query.
 - "has_negation": true if the question excludes specific things ("apart from",
-  "except", "other than", "not X"), otherwise false.
+  "except", "other than", "not X" or something similar), otherwise false.
 - "exclusions": a list of the specific entities/terms the user wants excluded
   from the results (e.g. "smartphones apart from Nokia" -> ["Nokia"]). Empty
   list if nothing is excluded. Do NOT put whole phrases here, just the concrete
@@ -134,7 +134,7 @@ class QueryRewriter:
             self._provider = get_rewriter_provider()
         return self._provider
 
-    def transform(self, question, history=None):
+    def transform(self, question, history=None, trace=None):
         """
         Transform a raw question into a QueryTransform. Never raises — on any
         failure it returns the raw question as a single standalone query.
@@ -144,6 +144,8 @@ class QueryRewriter:
             raw = self.provider.complete(
                 prompt=_build_prompt(question, history),
                 system_prompt=_SYSTEM_PROMPT,
+                trace=trace,
+                label="rewrite",
             )
             return _parse_response(raw, question)
         except Exception as e:

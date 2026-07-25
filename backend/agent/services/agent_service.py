@@ -5,20 +5,56 @@ from rag.llm.base import GeminiProvider
 from rag.processors.embeddings import is_query_allowed, generate_embeddings
 from rag.processors.query_rewriter import QueryRewriter
 from rag.processors import semantic_cache
+from evaluation.trace import span
 
 
-def generate_agent_answer(agent_id, question, history):
+def _answer_payload(answer, chunk_ids, chunk_scores, status, full_ranking,
+                    retrieval=None):
+    """
+    Build the response dict. The serving shape is exactly the three original
+    keys; the evaluation-only diagnostics are added solely under `full_ranking`
+    so nothing downstream (chat.views, the semantic cache) sees a changed
+    payload in normal operation.
+    """
+    payload = {
+        "answer": answer,
+        "chunk_ids": chunk_ids,
+        "chunk_scores": chunk_scores,
+    }
+    if full_ranking:
+        retrieval = retrieval or {}
+        payload["status"] = status
+        payload["top_score"] = retrieval.get("top_score", 0.0)
+        payload["avg_score"] = retrieval.get("avg_score", 0.0)
+        payload["ranked_chunk_ids"] = retrieval.get("ranked_chunk_ids", [])
+        payload["ranked_scores"] = retrieval.get("ranked_scores", [])
+        payload["ann_chunk_ids"] = retrieval.get("ann_chunk_ids", [])
+    return payload
+
+
+def generate_agent_answer(agent_id, question, history, trace=None,
+                          full_ranking=False):
+    """
+    `trace` and `full_ranking` are opt-in evaluation hooks. With both omitted the
+    behaviour and returned payload are exactly as before: `trace=None` makes every
+    span a no-op, and `full_ranking=False` keeps the extra diagnostic keys out of
+    the response.
+    """
     agent = Agent.objects.get(id=agent_id)
 
     # 1. Guardrail: reject disallowed queries early (not cached).
-    if not is_query_allowed(question):
-        answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
-        return {"answer": answer, "chunk_ids": [], "chunk_scores": []}
+    with span(trace, "guardrail"):
+        allowed = is_query_allowed(question)
+    if not allowed:
+        answer = generate_fallback_llm(agent, question, history, agent.system_prompt,
+                                       trace=trace)
+        return _answer_payload(answer, [], [], "blocked", full_ranking)
 
     # 2. Query understanding: resolve follow-up references into a self-contained
     #    query, split genuine multi-part questions into sub-queries, and surface
     #    negation. Cheap (small model) and degrades to the raw question on failure.
-    transform = QueryRewriter().transform(question, history)
+    with span(trace, "rewrite"):
+        transform = QueryRewriter().transform(question, history, trace=trace)
     print(f"QUERY TRANSFORM: {transform}")
 
     # 3. Semantic cache lookup on the self-contained query. A hit skips the whole
@@ -31,19 +67,28 @@ def generate_agent_answer(agent_id, question, history):
     #    plain "smartphones" collide and return each other's answer.
     cacheable = not transform.exclusions
     knowledge_version = semantic_cache.compute_knowledge_version(agent)
-    query_embedding = generate_embeddings([transform.standalone_query])[0]
+    query_embedding = generate_embeddings([transform.standalone_query], trace=trace)[0]
     if cacheable:
-        cached = semantic_cache.lookup(agent, query_embedding, knowledge_version)
+        with span(trace, "cache_lookup"):
+            cached = semantic_cache.lookup(agent, query_embedding, knowledge_version)
         if cached:
             print("SEMANTIC CACHE HIT")
+            if trace is not None:
+                trace.record_cache("hit")
             return cached
         print("SEMANTIC CACHE MISS")
+        if trace is not None:
+            trace.record_cache("miss")
+    elif trace is not None:
+        # Exclusion queries bypass the cache by design, so they are neither a hit
+        # nor a miss — counting them as misses would understate the hit rate.
+        trace.record_cache("skipped")
 
     # 4. Retrieval: decompose-and-merge over the sub-queries, reranked against
     #    the standalone query.
     retrieval = retrieve_for_queries(
         transform.sub_queries, transform.standalone_query, agent,
-        exclusions=transform.exclusions,
+        exclusions=transform.exclusions, trace=trace, full_ranking=full_ranking,
     )
     status = retrieval.get("status", "low")
     chunks = retrieval.get("chunks", [])
@@ -54,12 +99,15 @@ def generate_agent_answer(agent_id, question, history):
 
     # 5. Routing logic.
     if status == "low" or (status == "high" and not chunks):
-        answer = generate_fallback_llm(agent, question, history, agent.system_prompt)
-        return {"answer": answer, "chunk_ids": [], "chunk_scores": []}
+        answer = generate_fallback_llm(agent, question, history, agent.system_prompt,
+                                       trace=trace)
+        return _answer_payload(answer, [], [], status, full_ranking, retrieval)
 
     if status in ("partial", "ambiguous"):
-        answer = generate_clarification_llm(agent, question, chunks, history)
-        return {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
+        answer = generate_clarification_llm(agent, question, chunks, history,
+                                            trace=trace)
+        return _answer_payload(answer, chunk_ids, chunk_scores, status,
+                               full_ranking, retrieval)
 
     # status == "high" with chunks → answer strictly from context, then cache.
     context = build_context(chunks)
@@ -80,22 +128,30 @@ def generate_agent_answer(agent_id, question, history):
         """
 
     provider = GeminiProvider()
-    answer = provider.generate(
-        system_prompt=agent.system_prompt,
-        question=prompt,
-        history=[]
-    )
+    with span(trace, "generation"):
+        answer = provider.generate(
+            system_prompt=agent.system_prompt,
+            question=prompt,
+            history=[],
+            trace=trace,
+            label="generation",
+        )
 
+    # Cache the serving-shaped payload only. The diagnostic keys added by
+    # full_ranking are per-run and must not be persisted into cache entries.
     result = {"answer": answer, "chunk_ids": chunk_ids, "chunk_scores": chunk_scores}
     if answer and cacheable:
-        semantic_cache.store(
-            agent, transform.standalone_query, query_embedding, result,
-            knowledge_version,
-        )
-    return result
+        with span(trace, "cache_store"):
+            semantic_cache.store(
+                agent, transform.standalone_query, query_embedding, result,
+                knowledge_version,
+            )
+    return _answer_payload(answer, chunk_ids, chunk_scores, status, full_ranking,
+                           retrieval)
 
 
-def generate_fallback_llm(agent, question, history, system_prompt=None, top_score=None):
+def generate_fallback_llm(agent, question, history, system_prompt=None, top_score=None,
+                          trace=None):
     """
     Generates a fallback response using extracted topics from documents
     instead of just document titles.
@@ -146,13 +202,16 @@ def generate_fallback_llm(agent, question, history, system_prompt=None, top_scor
         "what topics the agent can assist with based on the documents it has."
     )
 
-    return provider.generate(
-        system_prompt=final_system_prompt,
-        question=prompt,
-        history=[]  # keep stateless for fallback
-    )
+    with span(trace, "generation"):
+        return provider.generate(
+            system_prompt=final_system_prompt,
+            question=prompt,
+            history=[],  # keep stateless for fallback
+            trace=trace,
+            label="fallback",
+        )
 
-def generate_clarification_llm(agent, question, chunks, history):
+def generate_clarification_llm(agent, question, chunks, history, trace=None):
     """
     Generate clarification prompt when retrieval is partial or ambiguous.
     """
@@ -172,8 +231,11 @@ def generate_clarification_llm(agent, question, chunks, history):
     - Do NOT answer the question
     - Only ask for clarification
     """
-    return provider.generate(
-        system_prompt="You are a helpful assistant that guides users to clarify their questions.",
-        question=prompt,
-        history=history
-    )
+    with span(trace, "generation"):
+        return provider.generate(
+            system_prompt="You are a helpful assistant that guides users to clarify their questions.",
+            question=prompt,
+            history=history,
+            trace=trace,
+            label="clarification",
+        )

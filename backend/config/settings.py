@@ -56,6 +56,10 @@ INSTALLED_APPS = SHARED_APPS + TENANT_APPS + [
     'django.contrib.postgres',
     'corsheaders',
     "django_celery_results",
+    # Offline evaluation harness. Has no models, so it is deliberately in
+    # neither SHARED_APPS nor TENANT_APPS — it needs to be installed only so
+    # its management commands are discoverable.
+    "evaluation",
 ]
 
 

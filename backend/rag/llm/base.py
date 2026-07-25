@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 import google.generativeai as genai
 from django.conf import settings
 
+from evaluation.trace import record_tokens
+
 
 class BaseLLMProvider(ABC):
 
@@ -16,12 +18,15 @@ class GeminiProvider(BaseLLMProvider):
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel(model_name)
 
-    def complete(self, prompt, system_prompt=""):
+    def complete(self, prompt, system_prompt="", trace=None, label="rewrite"):
         """
         Raw single-shot completion with no markdown scaffolding or
         post-processing. Used for structured/utility tasks like query
         rewriting where the caller needs the model's output verbatim
         (e.g. JSON), not chat-formatted prose.
+
+        `trace`/`label` are optional instrumentation: token usage is recorded
+        under `label` when a trace is supplied. The return type is unchanged.
         """
         parts = []
         if system_prompt:
@@ -29,9 +34,11 @@ class GeminiProvider(BaseLLMProvider):
         parts.append(prompt)
 
         response = self.model.generate_content("\n\n".join(parts))
+        record_tokens(trace, label, response)
         return response.text if hasattr(response, "text") else str(response)
 
-    def generate(self, system_prompt, history, question):
+    def generate(self, system_prompt, history, question, trace=None,
+                 label="generation"):
         """
         Stateless response generation using Gemini.
         Prevents repetition and re-answering old questions.
@@ -78,6 +85,8 @@ class GeminiProvider(BaseLLMProvider):
                 {"role": "user", "parts": [markdown_prompt]}
             ]
         )
+
+        record_tokens(trace, label, response)
 
         raw_response = response.text if hasattr(response, "text") else str(response)
 

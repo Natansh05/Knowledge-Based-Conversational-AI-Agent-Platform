@@ -7,6 +7,8 @@ from rag.processors.embeddings import generate_embeddings
 from chat.models import ChatMessage
 from scipy.special import expit
 
+from evaluation.trace import span
+
 AVG_SIMILARITY_THRESHOLD = 0.3         # "low" boundary
 TOP_SIMILARITY_THRESHOLD = 0.6         # "high" zone entry
 MIN_CHUNK_SCORE = 0.3                  # filter floor
@@ -34,7 +36,7 @@ def _empty_retrieval():
     }
 
 
-def _fetch_candidates(query_embedding, agent, rerank_top_n=20):
+def _fetch_candidates(query_embedding, agent, rerank_top_n=20, trace=None):
     """Vector search: top-N candidate chunks for one query embedding."""
     agent_docs = agent.documents.values_list("id", flat=True)
     results = (
@@ -45,13 +47,17 @@ def _fetch_candidates(query_embedding, agent, rerank_top_n=20):
         .order_by("distance")
         .distinct()[:rerank_top_n]
     )
-    return list(results)
+    # The queryset is lazy — force it inside the span so the timing covers the
+    # actual database round-trip rather than just building the query.
+    with span(trace, "ann_fetch"):
+        return list(results)
 
 
-def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20):
-    query_embedding = generate_embeddings([query])[0]
-    results = _fetch_candidates(query_embedding, agent, rerank_top_n)
-    return _score_and_select(query, results)
+def retrieve_chunks(query, agent, top_k=5, rerank_top_n=20, trace=None,
+                    full_ranking=False):
+    query_embedding = generate_embeddings([query], trace=trace)[0]
+    results = _fetch_candidates(query_embedding, agent, rerank_top_n, trace=trace)
+    return _score_and_select(query, results, trace=trace, full_ranking=full_ranking)
 
 
 def _apply_exclusions(chunks, exclusions):
@@ -72,7 +78,7 @@ def _apply_exclusions(chunks, exclusions):
 
 
 def retrieve_for_queries(sub_queries, standalone_query, agent, exclusions=None,
-                         rerank_top_n=20):
+                         rerank_top_n=20, trace=None, full_ranking=False):
     """
     Decompose-and-merge retrieval. Fetches candidate chunks for each sub-query,
     unions them (deduped by chunk id), drops any chunk matching an excluded term,
@@ -83,24 +89,40 @@ def retrieve_for_queries(sub_queries, standalone_query, agent, exclusions=None,
     queries = [q for q in (sub_queries or []) if q] or [standalone_query]
 
     # One batched embedding call for all sub-queries.
-    embeddings = generate_embeddings(queries)
+    embeddings = generate_embeddings(queries, trace=trace)
 
     merged = {}
     for emb in embeddings:
-        for chunk in _fetch_candidates(emb, agent, rerank_top_n):
+        for chunk in _fetch_candidates(emb, agent, rerank_top_n, trace=trace):
             merged[chunk.id] = chunk  # dedupe by chunk id, keep the object
 
     candidates = _apply_exclusions(list(merged.values()), exclusions)
-    return _score_and_select(standalone_query, candidates)
+    result = _score_and_select(standalone_query, candidates, trace=trace,
+                               full_ranking=full_ranking)
+
+    if full_ranking:
+        # The pre-rerank ordering, for evaluating the two retrieval stages
+        # separately. `merged` is insertion-ordered and each sub-query's
+        # candidates arrive in ascending cosine distance, so this is the ANN
+        # ranking with sub-query results interleaved by first appearance.
+        # _apply_exclusions preserves that order.
+        result["ann_chunk_ids"] = [c.id for c in candidates]
+
+    return result
 
 
-def _score_and_select(query, results):
+def _score_and_select(query, results, trace=None, full_ranking=False):
     if not results:
-        return _empty_retrieval()
+        empty = _empty_retrieval()
+        if full_ranking:
+            empty["ranked_chunk_ids"] = []
+            empty["ranked_scores"] = []
+        return empty
 
     # Rerank with cross encoder
     pairs = [(query, c.text) for c in results]
-    scores = get_reranker().predict(pairs)
+    with span(trace, "rerank"):
+        scores = get_reranker().predict(pairs)
     norm_scores = expit(scores)  # Convert to 0-1 range
 
     top_score = norm_scores.max() if len(norm_scores) else 0
@@ -172,7 +194,7 @@ def _score_and_select(query, results):
     ]
     selected_pairs = filtered_pairs[:top_k]
 
-    return {
+    payload = {
         "status": status,
         "top_score": float(top_score),
         "avg_score": float(avg_score),
@@ -180,6 +202,17 @@ def _score_and_select(query, results):
         "chunk_ids": [chunk.id for _, chunk in selected_pairs],
         "chunk_scores": [float(score) for score, _ in selected_pairs],
     }
+
+    if full_ranking:
+        # The complete reranked ordering, before the MIN_CHUNK_SCORE filter and
+        # before the dynamic top_k truncation above. Evaluation needs this:
+        # `chunk_ids` holds at most 4 chunks (2 on the usual "high" path), so
+        # Recall@5 / nDCG@10 are undefined on it. Opt-in so the serving payload
+        # is unchanged.
+        payload["ranked_chunk_ids"] = [chunk.id for _, chunk in scored_chunks]
+        payload["ranked_scores"] = [float(score) for score, _ in scored_chunks]
+
+    return payload
 
 def get_history(chat):
     messages = ChatMessage.objects.filter(
