@@ -101,7 +101,7 @@ docker/pgadmin-data/
 backend/evaluation/reports/
 # Built from private tenant documents (questions + ground-truth answers derived
 # from real content). Regenerate locally with `manage.py build_golden_set`.
-backend/evaluation/dataset/golden_set.jsonl
+backend/evaluation/dataset/golden_set*.jsonl
 
 # ------------------------------
 # Misc

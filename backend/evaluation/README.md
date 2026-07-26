@@ -47,6 +47,20 @@ python manage.py score_ragas
   a cold-vs-warm semantic-cache A/B (median latency 6.5s → 1.7s at an 82.8% hit
   rate), including why warm-run retrieval metrics must not be read as a
   regression.
+- [`examples/example_threshold_tuning.md`](examples/example_threshold_tuning.md) —
+  using the harness to change a config constant with evidence: an offline
+  precision/recall sweep plus a live before/after that doubled the paraphrase
+  cache-hit rate (30% → 63%) with no false hits.
 
 These are sanitized (aggregate metrics only, tenant/agent scrubbed) so they are
 safe to publish; the live `reports/` equivalents are not.
+
+## Helper scripts
+
+One-off analysis helpers under [`scripts/`](scripts/), runnable with
+`uv run python evaluation/scripts/<name>`:
+
+- `paraphrase_golden_set.py` — rewords a golden set (same meaning, different
+  wording) to test whether the cache matches paraphrases, not just exact repeats.
+- `threshold_sweep.py` — offline precision/recall sweep of the cache distance
+  threshold; locates the false-hit cliff before you raise it.

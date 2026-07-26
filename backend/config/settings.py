@@ -228,10 +228,15 @@ REWRITER_MODEL = config("REWRITER_MODEL", default="gemini-2.5-flash-lite")
 
 # Semantic cache (pgvector-backed, see rag.processors.semantic_cache).
 # Distance is cosine distance (1 - cosine similarity); 0.08 ≈ 0.92 similarity.
-# Strict by design so only near-paraphrases hit; tune against real queries.
+# Cosine-distance ceiling for a cache hit. 0.15 chosen from an offline
+# threshold sweep (evaluation harness): on a paraphrase set it lifts recall well
+# above the original 0.08 while precision stayed at 1.0 (no false hits) up to
+# ~0.30 on that data. Kept conservative because that zero-false-hit margin is
+# partly a property of a small, topically-distinct question set; monitor on real
+# traffic where near-duplicate questions can produce false hits earlier.
 SEMANTIC_CACHE_ENABLED = config("SEMANTIC_CACHE_ENABLED", cast=bool, default=True)
 SEMANTIC_CACHE_DISTANCE_THRESHOLD = config(
-    "SEMANTIC_CACHE_DISTANCE_THRESHOLD", cast=float, default=0.08
+    "SEMANTIC_CACHE_DISTANCE_THRESHOLD", cast=float, default=0.15
 )
 SEMANTIC_CACHE_TTL = config("SEMANTIC_CACHE_TTL", cast=int, default=1800)
 
