@@ -145,7 +145,32 @@ normalized top/average scores and the gap to the runner-up chunk:
 | Abstention | Low-confidence retrieval never reaches the generator — it routes to fallback or clarification |
 | Exclusion honoring | Excluded entities are filtered out of retrieval results, not just discouraged in the prompt |
 | Cache correctness | Cache keys carry a `knowledge_version` fingerprint of the agent's documents, so edits invalidate stale answers; exclusion queries bypass the cache entirely to prevent key collisions |
-| Cache precision | Hits require cosine distance ≤ 0.08 (~0.92 similarity), tuned strict to avoid wrong-answer hits |
+| Cache precision | Hits require cosine distance ≤ 0.15, tuned via the evaluation harness (below) to catch paraphrases while keeping false hits at zero on the benchmark |
+
+## Evaluation
+
+An offline evaluation harness (`backend/evaluation/`) measures retrieval and
+answer quality against a golden dataset built from a tenant's own documents —
+not a public benchmark. It replays the live pipeline with opt-in tracing that is
+a no-op in production.
+
+| Family | Metrics |
+|---|---|
+| Retrieval ranking | Recall / Precision / nDCG@k, computed for both the raw vector order and the reranked order |
+| Routing | correct-refusal, false-answer and missed-answer rates; expected-vs-actual status matrix |
+| Operational | per-stage latency (p50 / p95), prompt/completion token usage, cache hit rate |
+| Answer quality | Ragas faithfulness, answer correctness, context precision / recall |
+
+Selected results (70-question benchmark, single tenant):
+
+- Cross-encoder reranking lifted **recall@5 by 24%** (0.54 → 0.66) and precision@1 by 17% over raw vector search.
+- Strict-context prompting scored **0.97 faithfulness** (near-zero hallucination) on Ragas.
+- An offline precision/recall sweep plus live A/B raised the semantic-cache distance threshold 0.08 → 0.15, **doubling the paraphrase cache-hit rate (30% → 63%)** with no false hits.
+
+Workflow: `build_golden_set` → `run_eval` → `score_ragas`. See
+[`backend/evaluation/README.md`](backend/evaluation/README.md) for the full
+guide and [`backend/evaluation/examples/`](backend/evaluation/examples/) for
+sample reports.
 
 ## Prerequisites
 
@@ -326,6 +351,8 @@ backend/
   chat/        Chat sessions and messages
   rag/         Retrieval pipeline: embeddings, chunker, retriever,
                query rewriter, semantic cache, LLM providers
+  evaluation/  Offline eval harness: golden dataset, ranking/Ragas
+               metrics, latency + token tracing
 frontend/      React + Vite client
 ```
 
