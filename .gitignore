@@ -92,6 +92,18 @@ docker/postgres-data/
 docker/pgadmin-data/
 
 # ------------------------------
+# RAG evaluation harness (backend/evaluation)
+# ------------------------------
+# Generated run outputs — never commit. report.md/json are metrics-only and
+# safe, but eval_records.json embeds raw chunk text from tenant documents, so
+# the whole tree is ignored. Curated, sanitized samples live in
+# backend/evaluation/examples/ and ARE committed.
+backend/evaluation/reports/
+# Built from private tenant documents (questions + ground-truth answers derived
+# from real content). Regenerate locally with `manage.py build_golden_set`.
+backend/evaluation/dataset/golden_set*.jsonl
+
+# ------------------------------
 # Misc
 # ------------------------------
 *.bak

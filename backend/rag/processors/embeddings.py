@@ -3,6 +3,8 @@ from functools import lru_cache
 from documents.models import DocumentChunk
 from celery import group
 
+from evaluation.trace import span
+
 # Single source of truth for the embedding model. Stored on semantic cache
 # entries so that a model swap (different vector space / dimensions) never
 # matches stale embeddings. If you change this, also update the VectorField
@@ -43,15 +45,16 @@ def is_query_allowed(query: str) -> bool:
 
     return True
 
-def generate_embeddings(texts):
+def generate_embeddings(texts, trace=None):
 
-    embeddings = get_embedding_model().encode(
-        texts,
-        batch_size=32,
-        show_progress_bar=False,
-        convert_to_numpy=True,
-        normalize_embeddings=True
-    )
+    with span(trace, "embed"):
+        embeddings = get_embedding_model().encode(
+            texts,
+            batch_size=32,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+            normalize_embeddings=True
+        )
     return embeddings.tolist()
 
 BATCH_SIZE=64

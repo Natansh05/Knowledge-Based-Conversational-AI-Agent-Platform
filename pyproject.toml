@@ -41,3 +41,19 @@ dependencies = [
     "nltk>=3.10.0",
     "rake-nltk>=1.0.6",
 ]
+
+# Offline evaluation harness only. Deliberately a dependency group rather than a
+# runtime dependency: a plain `uv sync` must never pull ragas/openai/pandas into
+# the serving environment. Install with `uv sync --group eval`.
+[dependency-groups]
+eval = [
+    "ragas",
+    "datasets",
+    "langchain-google-genai",
+    # ragas 0.4.3 imports langchain_community.chat_models.vertexai and
+    # langchain_community.llms.VertexAI unconditionally (ragas/llms/base.py:12),
+    # both of which langchain-community 0.4.x removed — so importing ragas at all
+    # fails against 0.4.x. ragas does not declare this bound itself. Pinning below
+    # 0.4 does not move langchain or langchain-core, so the app is unaffected.
+    "langchain-community<0.4",
+]
